@@ -3,7 +3,7 @@ using System.Management.Automation;
 
 namespace OpenVPNClient
 {
-	[Cmdlet(VerbsCommon.Get, "OpenVPN")]
+	[Cmdlet(VerbsLifecycle.Start, "OpenVPN")]
 	[OutputType(typeof(int))]
 	[Alias("sovpn")]
 	public class StartOpenVPNCommand:Cmdlet
