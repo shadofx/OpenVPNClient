@@ -22,7 +22,6 @@
 	</ItemGroup>
 
 	<Target Name="AfterBuild" AfterTargets="Build">
-		<Copy SourceFiles="$(ProjectDir)OpenVPNClient.Core.psd1" DestinationFolder="$(ProjectDir)bin/$(Configuration)/net6.0" Condition="'$(TargetFramework)' == 'net6.0'"/>
-		<Copy SourceFiles="$(ProjectDir)OpenVPNClient.Desktop.psd1" DestinationFolder="$(ProjectDir)bin/$(Configuration)/net4.8" Condition="'$(TargetFramework)' == 'net4.8'"/>
+		<Copy SourceFiles="$(ProjectDir)OpenVPNClient.psd1" DestinationFolder="$(ProjectDir)bin/$(Configuration)" />
 	</Target>
 </Project>
