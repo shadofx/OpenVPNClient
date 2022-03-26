@@ -9,17 +9,10 @@
 @{
 
 # Script module or binary module file associated with this manifest.
-RootModule = if($PSEdition -eq 'Core')
-{
-    'net6.0\OpenVPNClient.dll'
-}
-else # Desktop
-{
-    'net4.8\OpenVPNClient.dll'
-}
+RootModule = 'OpenVPNClient.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.1'
+ModuleVersion = '0.0.2'
 
 # Supported PSEditions
 CompatiblePSEditions = @('Core','Desktop')
@@ -63,13 +56,13 @@ PowerShellVersion = '5.1'
 # Assemblies that must be loaded prior to importing this module
 RequiredAssemblies = if($PSEdition -eq 'Core')
 {
-    'net6.0\Otp.NET.dll',
-    'net6.0\OpenVPNClient.dll'
+    'Otp.NET.dll',
+    'OpenVPNClient.net6.0.dll'
 }
 else # Desktop
 {
-    'net4.8\Otp.NET.dll',
-    'net4.8\OpenVPNClient.dll'
+    'Otp.NET.dll',
+    'OpenVPNClient.net4.8.dll'
 }
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
@@ -85,10 +78,10 @@ else # Desktop
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @()
+FunctionsToExport = @('Get-GoogleAuthenticatorPin','Start-OpenVPN')
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-CmdletsToExport = @('Get-GoogleAuthenticatorPin','Start-OpenVPN')
+# CmdletsToExport = @()
 
 # Variables to export from this module
 #VariablesToExport = '*'

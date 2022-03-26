@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFrameworks>net6.0;net4.8</TargetFrameworks>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<AssemblyName>$(MSBuildProjectName).$(TargetFramework)</AssemblyName>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -11,21 +11,16 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.WSMan.Runtime" Version="7.2.2" Condition="'$(TargetFramework)' == 'net6.0'" />
-		<PackageReference Include="Otp.NET" Version="1.2.2" />
+		<PackageReference Include="Otp.NET" Version="1.2.2" GeneratePathProperty="true" />
 	</ItemGroup>
 
-	<ItemGroup Condition="'$(TargetFramework)' == 'net4.8'">
-		<Reference Include="System.Management.Automation">
-			<HintPath>C:\Program Files (x86)\Reference Assemblies\Microsoft\WindowsPowerShell\3.0\System.Management.Automation.dll</HintPath>
-		</Reference>
-	</ItemGroup>
-
-	<Target Name="AfterBuild" AfterTargets="Build">
+	<Target Name="CreatePSModule" DependsOnTargets="Build" AfterTargets="Build">
+		<Copy SourceFiles="$(PkgOtp_NET)/lib/netstandard2.0/Otp.NET.dll" DestinationFolder="$(ProjectDir)bin/OpenVPNClient" Condition="'$(PkgOtp_NET)' != ''"/>
 		<ItemGroup>
 			<OutputContent Include="$(ProjectDir)bin/$(Configuration)/**/*.*" />
 		</ItemGroup>
-		<Copy SourceFiles="@(OutputContent)" DestinationFolder="$(ProjectDir)bin/OpenVPNClient/%(RecursiveDir)" />
+		<Copy SourceFiles="@(OutputContent)" DestinationFolder="$(ProjectDir)bin/OpenVPNClient" />
 		<Copy SourceFiles="$(ProjectDir)OpenVPNClient.psd1" DestinationFolder="$(ProjectDir)bin/OpenVPNClient" />
+		<Copy SourceFiles="$(ProjectDir)OpenVPNClient.psm1" DestinationFolder="$(ProjectDir)bin/OpenVPNClient" />
 	</Target>
 </Project>
