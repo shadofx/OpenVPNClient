@@ -1,9 +1,8 @@
-﻿using Microsoft.Win32;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System;
+#if !NETFRAMEWORK
+using System.Runtime.Versioning;
+#endif
 using System.Security.Principal;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace OpenVPNClient
@@ -12,9 +11,28 @@ namespace OpenVPNClient
 	{
 		public static async Task<int> Start(string workingdir, string openvpnoptions, string stdin)
 		{
+#if !NETFRAMEWORK
 			if (OperatingSystem.IsOSPlatform("windows"))
 			{
-				using var identity = WindowsIdentity.GetCurrent();
+				return await StartOnWindows(workingdir, openvpnoptions, stdin);
+			}
+			else if (OperatingSystem.IsOSPlatform("linux"))
+			{
+				return await StartProcess("openvpn", workingdir, openvpnoptions, stdin);
+			}
+			throw new PlatformNotSupportedException();
+#else
+			return await StartOnWindows(workingdir, openvpnoptions, stdin);
+#endif
+		}
+
+#if !NETFRAMEWORK
+		[SupportedOSPlatform("windows")]
+#endif
+		private static async Task<int> StartOnWindows(string workingdir, string openvpnoptions, string stdin)
+		{
+			using (var identity = WindowsIdentity.GetCurrent())
+			{
 				var principal = new WindowsPrincipal(identity);
 				if (principal.IsInRole(WindowsBuiltInRole.Administrator))
 				{
@@ -26,23 +44,21 @@ namespace OpenVPNClient
 					return await InteractiveService.Call(@"\\.\pipe\openvpn\service", workingdir, openvpnoptions, stdin);
 				}
 			}
-			else if (OperatingSystem.IsOSPlatform("linux"))
-			{
-				return await StartProcess("openvpn", workingdir, openvpnoptions, stdin);
-			}
-			throw new PlatformNotSupportedException();
 		}
+
 		private static async Task<int> StartProcess(string filename, string workingdir, string openvpnoptions, string stdin)
 		{
-			using var proc = new System.Diagnostics.Process();
-			proc.StartInfo.FileName = filename;
-			proc.StartInfo.Arguments = openvpnoptions;
-			proc.StartInfo.WorkingDirectory = workingdir;
-			proc.StartInfo.RedirectStandardInput = true;
-			proc.StartInfo.RedirectStandardOutput = true;
-			proc.Start();
-			await proc.StandardInput.WriteLineAsync(stdin);
-			return proc.Id;
+			using (var proc = new System.Diagnostics.Process())
+			{
+				proc.StartInfo.FileName = filename;
+				proc.StartInfo.Arguments = openvpnoptions;
+				proc.StartInfo.WorkingDirectory = workingdir;
+				proc.StartInfo.RedirectStandardInput = true;
+				proc.StartInfo.RedirectStandardOutput = true;
+				proc.Start();
+				await proc.StandardInput.WriteLineAsync(stdin);
+				return proc.Id;
+			}
 		}
 	}
 }

@@ -1,7 +1,9 @@
 ﻿using System.Text;
 using System.Runtime.InteropServices;
 using System.ComponentModel;
+#if !NETFRAMEWORK
 using System.Runtime.Versioning;
+#endif
 using System.Threading.Tasks;
 using System;
 using System.IO;
@@ -9,7 +11,9 @@ using System.Threading;
 
 namespace OpenVPNClient
 {
+#if !NETFRAMEWORK
 	[SupportedOSPlatform("windows")]
+#endif
 	public static class InteractiveService
 	{
 		public static async Task<int> Call(string pipeName, string workingdir, string openvpnoptions, string stdin, int readBufferSize = 1024, CancellationToken cancellationToken = default(CancellationToken))

@@ -1,13 +1,17 @@
 ﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
+#if !NETFRAMEWORK
 using System.Runtime.Versioning;
+#endif
 using System.Security;
 using System.Threading;
 
 namespace OpenVPNClient
 {
+#if !NETFRAMEWORK
 	[SupportedOSPlatform("windows")]
+#endif
 	internal static class Native
 	{
 		// Win32 constants for accessing files.
