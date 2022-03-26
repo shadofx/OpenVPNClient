@@ -22,6 +22,10 @@
 	</ItemGroup>
 
 	<Target Name="AfterBuild" AfterTargets="Build">
-		<Copy SourceFiles="$(ProjectDir)OpenVPNClient.psd1" DestinationFolder="$(ProjectDir)bin/$(Configuration)" />
+		<ItemGroup>
+			<OutputContent Include="$(ProjectDir)bin/$(Configuration)/**/*.*" />
+		</ItemGroup>
+		<Copy SourceFiles="@(OutputContent)" DestinationFolder="$(ProjectDir)bin/OpenVPNClient/%(RecursiveDir)" />
+		<Copy SourceFiles="$(ProjectDir)OpenVPNClient.psd1" DestinationFolder="$(ProjectDir)bin/OpenVPNClient" />
 	</Target>
 </Project>

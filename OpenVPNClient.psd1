@@ -37,7 +37,7 @@ CompanyName = 'Unknown'
 Copyright = '(c) shado. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'Enables ability to start up OpenVPN either as admin or using OpenVPN Interactive Service. Also a simple Google Authenticator token generator.'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '5.1'
