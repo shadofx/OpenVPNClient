@@ -47,16 +47,23 @@ function Connect-OpenVPN{
 	$results = Get-ChildItem $openConnectionsLocation -Directory|ForEach-Object{
 		$openConnectionItem = $_
 		$removePath = $false
-		$processid = [int]::Parse((Get-Content "$openConnectionItem/pid.txt" -Raw))
-		if((Get-Process -Id $processid).HasExited){
-			$removePath = $true
-		}else{
-			Get-ChildItem $openConnectionItem -File -Filter '*.ovpn'|ForEach-Object {
-				if($Config.Name -eq $openConnectionItem.Name){
-					Wait-OpenConnectionReady -OpenConnectionDirectory $openConnectionItem
-					$processid
+		$pidpath ="$openConnectionItem/pid.txt"
+		if(Test-Path $pidpath)
+		{
+			$processid = [int]::Parse((Get-Content $pidpath -Raw))
+			if((Get-Process -Id $processid).HasExited){
+				$removePath = $true
+			}else{
+				Get-ChildItem $openConnectionItem -File -Filter '*.ovpn'|ForEach-Object {
+					if($Config.Name -eq $openConnectionItem.Name){
+						Wait-OpenConnectionReady -OpenConnectionDirectory $openConnectionItem
+						$processid
+					}
 				}
 			}
+		}
+		else{
+			$removePath = $true
 		}
 		if($removePath){Remove-Item $openConnectionItem -Recurse -Force}
 	}
@@ -89,21 +96,23 @@ function Wait-OpenConnectionReady{
 		$OpenConnectionDirectory
 	)
 	$result = ""
-	$file = Get-ChildItem $_ -File -Filter 'out.log'
 	do{
 		Start-Sleep -Milliseconds 500
-		$file2 = Copy-Item $file -Destination "$OpenConnectionDirectory/out.$(New-Guid).log" -Force
-		$content = Get-Content $file2 -Raw
-		if($content.Contains("AUTH: Received control message: AUTH_FAILED")){
-			$result = "Invalid Username or Password (AUTH: Received control message: AUTH_FAILED)"
+		$file = Get-ChildItem $OpenConnectionDirectory -File -Filter 'out.log' -ErrorAction Continue
+		if($file){
+			$file2 = Copy-Item $file -Destination "$OpenConnectionDirectory/out.$(New-Guid).log" -Force -PassThru
+			$content = Get-Content $file2 -Raw
+			if($content.Contains("AUTH: Received control message: AUTH_FAILED")){
+				$result = "Invalid Username or Password (AUTH: Received control message: AUTH_FAILED)"
+			}
+			elseif($content.Contains("Initialization Sequence Completed With Errors ( see http://openvpn.net/faq.html#dhcpclientserv )")){
+				$result = "TCP/IP stack is corrupted (see http://openvpn.net/faq.html#dhcpclientserv)"
+			}
+			elseif($content.Contains("Initialization Sequence Completed")){
+				$result = "Success"
+			}
+			Remove-Item $file2
 		}
-		elseif($content.Contains("Initialization Sequence Completed With Errors ( see http://openvpn.net/faq.html#dhcpclientserv )")){
-			$result = "TCP/IP stack is corrupted (see http://openvpn.net/faq.html#dhcpclientserv)"
-		}
-		elseif($content.Contains("Initialization Sequence Completed")){
-			$result = "Success"
-		}
-		Remove-Item $file2
 	}while($result -eq "")
 	if($result -ne "Success"){
 		throw $result
@@ -114,6 +123,7 @@ function Add-GoogleTokenToCredential{
 	[OutputType([pscredential])]
 	[Alias("agttc")]
 	param(
+		[Parameter(ValueFromPipeline=$true)]
 		[pscredential]
 		$Credential,
 		[securestring]
@@ -130,17 +140,23 @@ function Remove-DomainFromCredential{
 	[OutputType([pscredential])]
 	[Alias("rdfc")]
 	param(
+		[Parameter(ValueFromPipeline=$true)]
 		[pscredential]
 		$Credential
 	)
 	if($Credential.UserName.Contains('\')){
-
+		$res = $Credential.UserName.Split('\')
+		$res2 = [string[]]::new($res.Count-1)
+		for($i = 1;$i -lt $res.Count;$i++){
+			$res2[$i-1] = $res[$i]
+		}
+		$resname = $res2|Join-String -Separator '\'
 	}
 	else{
 		Write-Debug "No Domain found in credential username $($Credential.UserName)"
 		return $Credential
 	}
-	return [pscredential]::new($Credential.UserName,$Credential.Password)
+	return [pscredential]::new($resname,$Credential.Password)
 }
 
 Export-ModuleMember -Function Get-GoogleAuthenticatorPin -Alias ggap
