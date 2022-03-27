@@ -12,7 +12,7 @@
 RootModule = 'OpenVPNClient.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.3'
+ModuleVersion = '0.0.4'
 
 # Supported PSEditions
 CompatiblePSEditions = @('Core','Desktop')
@@ -56,13 +56,13 @@ PowerShellVersion = '5.1'
 # Assemblies that must be loaded prior to importing this module
 RequiredAssemblies = if($PSEdition -eq 'Core')
 {
-    'Otp.NET.dll',
-    'OpenVPNClient.net6.0.dll'
+	'Otp.NET.dll',
+	'OpenVPNClient.net6.0.dll'
 }
 else # Desktop
 {
-    'Otp.NET.dll',
-    'OpenVPNClient.net4.8.dll'
+	'Otp.NET.dll',
+	'OpenVPNClient.net4.8.dll'
 }
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
@@ -101,33 +101,33 @@ AliasesToExport = @('ggap','sovpn','covpn','agttc','rdfc')
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
 
-    PSData = @{
+	PSData = @{
 
-        # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = @('OpenVPN')
+		# Tags applied to this module. These help with module discovery in online galleries.
+		Tags = @('OpenVPN')
 
-        # A URL to the license for this module.
-        # LicenseUri = ''
+		# A URL to the license for this module.
+		# LicenseUri = ''
 
-        # A URL to the main website for this project.
-        # ProjectUri = ''
+		# A URL to the main website for this project.
+		ProjectUri = 'https://github.com/perennialinnocence/OpenVPNClient'
 
-        # A URL to an icon representing this module.
-        # IconUri = ''
+		# A URL to an icon representing this module.
+		IconUri = 'https://raw.githubusercontent.com/perennialinnocence/OpenVPNClient/master/icon.svg'
 
-        # ReleaseNotes of this module
-        # ReleaseNotes = ''
+		# ReleaseNotes of this module
+		# ReleaseNotes = ''
 
-        # Prerelease string of this module
-        # Prerelease = ''
+		# Prerelease string of this module
+		# Prerelease = ''
 
-        # Flag to indicate whether the module requires explicit user acceptance for install/update/save
-        # RequireLicenseAcceptance = $false
+		# Flag to indicate whether the module requires explicit user acceptance for install/update/save
+		# RequireLicenseAcceptance = $false
 
-        # External dependent modules of this module
-        # ExternalModuleDependencies = @()
+		# External dependent modules of this module
+		# ExternalModuleDependencies = @()
 
-    } # End of PSData hashtable
+	} # End of PSData hashtable
 
 } # End of PrivateData hashtable
 
