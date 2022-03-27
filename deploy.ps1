@@ -1,8 +1,10 @@
 Remove-Item "$PSScriptRoot/bin" -Recurse -ErrorAction Continue
 dotnet build "$PSScriptRoot/OpenVPNClient.sln"
 $modules = ($env:PSModulePath).Split(';')[0]
+$moduleinfo = Invoke-Expression (Get-Content .\OpenVPNClient.psd1 -Raw)
 Remove-Item "$modules/OpenVPNClient" -Recurse -ErrorAction Continue
-Copy-Item "$PSScriptRoot/bin/OpenVPNClient" "$modules/OpenVPNClient" -Recurse -Verbose
+New-Item "$modules/OpenVPNClient/$($moduleinfo.ModuleVersion)" -ItemType Directory -Force
+Copy-Item "$PSScriptRoot/bin/OpenVPNClient/*" "$modules/OpenVPNClient/$($moduleinfo.ModuleVersion)" -Recurse -Verbose -Force
 $secretPath = "$env:USERPROFILE/psgallery api key.secret"
 if(Test-Path $secretPath){
 	$secret = Import-Clixml -Path $secretPath
@@ -18,4 +20,4 @@ if(Test-Path $secretPath){
 	$sec.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.WindowsIdentity]::GetCurrent().User,"FullControl","Allow")))
 	$sec | Set-Acl
 }
-Publish-Module -Name OpenVPNClient -NuGetApiKey $key -Verbose
+Publish-Module -Name OpenVPNClient -NuGetApiKey $key -Verbose -RequiredVersion $moduleinfo.ModuleVersion
