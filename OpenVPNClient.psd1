@@ -12,7 +12,7 @@
 RootModule = 'OpenVPNClient.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.5'
+ModuleVersion = '0.0.6'
 
 # Supported PSEditions
 CompatiblePSEditions = @('Core','Desktop')
@@ -30,7 +30,7 @@ CompanyName = 'Unknown'
 Copyright = 'None'
 
 # Description of the functionality provided by this module
-Description = 'Enables ability to start up OpenVPN either as admin or using OpenVPN Interactive Service. Also a simple Google Authenticator token generator.'
+Description = 'Streamlines use of OpenVPN from powershell from non-Admin terminals'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '5.1'

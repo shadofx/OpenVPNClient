@@ -14,77 +14,170 @@ function Start-OpenVPN{
 	[OutputType([int])]
 	[Alias("sovpn")]
 	param (
-		[Parameter(HelpMessage="Working directory for OpenVPN process, defaults to current directory")]
+		[Parameter(Mandatory=$false,HelpMessage="Working directory for OpenVPN process, defaults to current directory")]
 		[String]
 		$WorkingDirectory = "",
-		[Parameter(HelpMessage="Command line arguments to pass to OpenVPN")]
+		[Parameter(Mandatory=$false,HelpMessage="Command line arguments to pass to OpenVPN")]
 		[String]
 		$OpenVPNOptions = "",
-		[Parameter(HelpMessage="Input to send into started OpenVPN process")]
+		[Parameter(Mandatory=$false,HelpMessage="Input to send into started OpenVPN process")]
 		[String]
 		$StdIn = ""
 	)
 	if ([string]::IsNullOrEmpty($WorkingDirectory))
 	{
-		$WorkingDirectory = [System.IO.directory]::GetCurrentDirectory();
+		$WorkingDirectory = [System.IO.Directory]::GetCurrentDirectory();
 		Write-Debug -Message "Using $WorkingDirectory as WorkingDirectory since none is provided"
 	}
 	return [OpenVpnClient.Process]::Start($WorkingDirectory, $OpenVPNOptions, $StdIn).GetAwaiter().GetResult()
 }
 function Connect-OpenVPN{
-	[CmdletBinding()]
+	[CmdletBinding(DefaultParameterSetName="Direct")]
 	[OutputType([int])]
 	[Alias("covpn")]
 	param(
-		[ValidateScript({$_ -is [string] -or $_ -is [System.IO.FileInfo]})]
-		[object]
+        [Parameter(Mandatory=$true,ParameterSetName="Direct")]
+        [Parameter(Mandatory=$true,ParameterSetName="Recur")]
+		[System.IO.FileInfo]
 		$Config,
+        [Parameter(Mandatory=$false,ParameterSetName="Direct")]
 		[pscredential]
-		$Credential
+		$Credential,
+		[Parameter(Mandatory=$false,ParameterSetName="Recur")]
+		[System.IO.FileInfo]
+		$CredentialFile,
+		[Parameter(Mandatory=$false,ParameterSetName="Recur")]
+		[System.IO.FileInfo]
+		$SecretFile,
+		[Parameter(Mandatory=$false,ParameterSetName="Recur")]
+		[switch]
+		$IgnoreUserDomain
 	)
-	if($Config -is [string]){$Config = Get-Item $Config}
-	$openConnectionsLocation = New-Item -Path "$env:USERPROFILE/OpenVPN/OpenConnections" -ItemType Directory -Force
-	$results = Get-ChildItem $openConnectionsLocation -Directory|ForEach-Object{
-		$openConnectionItem = $_
-		$removePath = $false
-		$pidpath ="$openConnectionItem/pid.txt"
-		if(Test-Path $pidpath)
-		{
-			$processid = [int]::Parse((Get-Content $pidpath -Raw))
-			if((Get-Process -Id $processid).HasExited){
-				$removePath = $true
-			}else{
-				Get-ChildItem $openConnectionItem -File -Filter '*.ovpn'|ForEach-Object {
-					if($Config.Name -eq $openConnectionItem.Name){
-						Wait-OpenConnectionReady -OpenConnectionDirectory $openConnectionItem
-						$processid
+	if($PsCmdlet.ParameterSetName -eq "Direct"){
+		Write-Debug "Connecting OpenVPN with $Config for user $($Credential.UserName)"
+		$openConnectionsLocation = New-Item -Path "$env:USERPROFILE/OpenVPN/OpenConnections" -ItemType Directory -Force
+		$results = Get-ChildItem $openConnectionsLocation -Directory|ForEach-Object{
+			$openConnectionItem = $_
+			$removePath = $false
+			$pidpath ="$openConnectionItem/pid.txt"
+			Write-Debug "Checking $openConnectionItem"
+			if(Test-Path $pidpath)
+			{
+				$processid = [int]::Parse((Get-Content $pidpath -Raw))
+				Write-Debug "PID $processid detected at $pidpath"
+				$proc = Get-Process -Id $processid
+				if($proc.HasExited -or $proc.ProcessName -ne 'openvpn'){
+					Write-Debug "PID $processid is dead and should be removed"
+					$removePath = $true
+				}else{
+					Write-Debug "PID $processid is alive"
+					Get-ChildItem $openConnectionItem -File -Filter '*.ovpn'|ForEach-Object {
+						Write-Debug "Checking OVPN $_"
+						if($Config.Name -eq $_.Name){
+							Wait-OpenConnectionReady -OpenConnectionDirectory $openConnectionItem
+							$processid
+						}
 					}
 				}
 			}
+			else{
+				$removePath = $true
+			}
+			if($removePath){Remove-Item $openConnectionItem -Recurse -Force}
 		}
-		else{
-			$removePath = $true
+		if($results){
+			Write-Debug "In-progress connection detected $results"
+			return $results
+		}else{
+			$guid = New-Guid
+			$newconfigpath = New-Item -Path "$openConnectionsLocation/$guid" -ItemType Directory -Force
+			$newconfigfile = New-Item -Path "$newconfigpath/$($Config.Name)" -ItemType File -Force
+			Write-Debug "Initializing connection $newconfigpath"
+			$configcontent = Get-Content $Config -Raw
+			if($Credential){
+				$configcontent = $configcontent.Replace("auth-user-pass", "auth-user-pass auth.$guid.txt")
+			}
+			Set-Content -Value $configcontent -Path $newconfigfile -NoNewline
+			$options = "--config `"$newconfigfile`" --log `"$newconfigpath/out.log`" --writepid `"$newconfigpath/pid.txt`""
+			if($Credential){
+				Write-Debug "Attaching $($Credential.UserName) credential to $newconfigpath"
+				$secretfile = New-Item -Path "$newconfigpath/auth.$guid.txt" -ItemType File -Force
+				$username = $Credential.UserName
+				$password = [System.Net.NetworkCredential]::new("", $Credential.Password).Password
+				@($username,$password)|Set-Content $secretfile
+				$result = Start-OpenVPN -WorkingDirectory $newconfigpath -OpenVPNOptions $options -StdIn "$username`n$password`n"	
+			}else{
+				Write-Debug "No credential for $newconfigpath"
+				$result = Start-OpenVPN -WorkingDirectory $newconfigpath -OpenVPNOptions $options -StdIn ""	
+			}
+			Wait-OpenConnectionReady -OpenConnectionDirectory $newconfigpath
+			if(!$Credential){
+				Remove-Item $secretfile -Force
+			}
+			Write-Debug "Started process $result"
+			return $result
 		}
-		if($removePath){Remove-Item $openConnectionItem -Recurse -Force}
 	}
-	if($results){
-		return $results
-	}else{
-		$guid = New-Guid
-		$newconfigpath = New-Item -Path "$openConnectionsLocation/$guid" -ItemType Directory -Force
-		$newconfigfile = New-Item -Path "$newconfigpath/$($Config.Name)" -ItemType File -Force
-		$configcontent = Get-Content $Config -Raw
-		$configcontent = $configcontent.Replace("auth-user-pass", "auth-user-pass auth.$guid.txt")
-		Set-Content -Value $configcontent -Path $newconfigfile -NoNewline
-		$secretfile = New-Item -Path "$newconfigpath/auth.$guid.txt" -ItemType File -Force
-		$username = $Credential.UserName
-		$password = [System.Net.NetworkCredential]::new("", $Credential.Password).Password
-		@($username,$password)|Set-Content $secretfile
-		$result = Start-OpenVPN -WorkingDirectory $newconfigpath `
-			-OpenVPNOptions "--config `"$newconfigfile`" --log `"$newconfigpath/out.log`" --writepid `"$newconfigpath/pid.txt`"" `
-			-StdIn "$username`n$password`n"	
-		Wait-OpenConnectionReady -OpenConnectionDirectory $newconfigpath
-		Remove-Item $secretfile -Force
+	elseif($PsCmdlet.ParameterSetName -eq "Recur"){
+		$askForCredentials = !$CredentialFile.Exists
+		$connected = $false
+		do{
+			Write-Debug "Attempting VPN connection"
+			$rawcredential = if($askForCredentials){
+				$askmsg = "Enter Credential for $CredentialFile"
+				if($username){
+					Get-Credential -UserName $username -Message $askmsg
+				}else{
+					Get-Credential -Message $askmsg
+				}
+				$credentialInputted = $true
+			}else{
+				Write-Debug "Importing credentials from $CredentialFile"
+				Import-Clixml -Path $CredentialFile
+				$credentialInputted = $false
+			}
+			if(!$rawcredential){
+				throw "No credential provided"
+			}
+			$username = $rawcredential.UserName
+			$askForCredentials = $false
+			$credential = $rawcredential
+			if($SecretFile){
+				if($SecretFile.Exists){
+					Write-Debug "Importing secret from $SecretFile"
+					$secret = Import-Clixml -Path $SecretFile
+				}else{
+					$secret = Read-Host -AsSecureString -Prompt "Enter secret for $SecretFile"
+					Export-Clixml -Path $SecretFile -OutVariable $secret
+					Write-Verbose "Exported secret to $SecretFile"
+					$SecretFile.Refresh()
+				}
+				Write-Debug "Attaching Google Token to $($credential.UserName)"
+				$credential = $credential | Add-GoogleTokenToCredential -Secret $secret
+			}
+			if($IgnoreUserDomain -and $IgnoreUserDomain.IsPresent){
+				Write-Debug "Removing Domain from $($credential.UserName)"
+				$credential = $credential | Remove-DomainFromCredential
+			}
+			try{
+				$result = Connect-OpenVPN -Config $Config -Credential $credential
+				$connected = $true
+				Write-Debug "Successfully connected OpenVPN with $Config for user $($credential.UserName)"
+				if($credentialInputted){
+					Export-Clixml -Path $CredentialFile -InputObject $rawcredential
+					Write-Verbose "Exported $($rawcredential.UserName) credential to $CredentialFile"
+					$CredentialFile.Refresh()
+				}
+			}catch{
+				if($_.Exception.Message -eq "Invalid Username or Password (AUTH: Received control message: AUTH_FAILED)"){
+					Write-Warning $_
+					$askForCredentials = $true
+				}
+				else{
+					throw $_
+				}
+			}
+		}while(!$connected)
 		return $result
 	}
 }
@@ -97,9 +190,11 @@ function Wait-OpenConnectionReady{
 	)
 	$result = ""
 	do{
-		Start-Sleep -Milliseconds 500
+		Write-Debug "Waiting for Connection $OpenConnectionDirectory"
+		Start-Sleep -Milliseconds 2000
 		$file = Get-ChildItem $OpenConnectionDirectory -File -Filter 'out.log' -ErrorAction Continue
 		if($file){
+			Write-Debug "Copying $file for check"
 			$file2 = Copy-Item $file -Destination "$OpenConnectionDirectory/out.$(New-Guid).log" -Force -PassThru
 			$content = Get-Content $file2 -Raw
 			if($content.Contains("AUTH: Received control message: AUTH_FAILED")){
@@ -111,7 +206,13 @@ function Wait-OpenConnectionReady{
 			elseif($content.Contains("Initialization Sequence Completed")){
 				$result = "Success"
 			}
+			elseif($content.Contains("Exiting due to fatal error")){
+				$result = "Exiting due to fatal error : check $file for details"
+			}
 			Remove-Item $file2
+		}
+		else{
+			Write-Debug "$file not found"
 		}
 	}while($result -eq "")
 	if($result -ne "Success"){
@@ -123,9 +224,10 @@ function Add-GoogleTokenToCredential{
 	[OutputType([pscredential])]
 	[Alias("agttc")]
 	param(
-		[Parameter(ValueFromPipeline=$true)]
+		[Parameter(Mandatory=$true,ValueFromPipeline=$true)]
 		[pscredential]
 		$Credential,
+		[Parameter(Mandatory=$true)]
 		[securestring]
 		$Secret
 	)
@@ -140,7 +242,7 @@ function Remove-DomainFromCredential{
 	[OutputType([pscredential])]
 	[Alias("rdfc")]
 	param(
-		[Parameter(ValueFromPipeline=$true)]
+		[Parameter(Mandatory=$true,ValueFromPipeline=$true)]
 		[pscredential]
 		$Credential
 	)
