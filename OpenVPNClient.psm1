@@ -70,22 +70,22 @@ function Connect-OpenVPN{
 	if($PsCmdlet.ParameterSetName -eq "Direct"){
 		Write-Debug "Connecting OpenVPN with $Config for user $($Credential.UserName)"
 		$openConnectionsLocation = New-Item -Path "$env:USERPROFILE/OpenVPN/OpenConnections" -ItemType Directory -Force
-		$results = Get-ChildItem $openConnectionsLocation -Directory|ForEach-Object{
+		$results = $openConnectionsLocation|Get-ChildItem -Directory|ForEach-Object{
 			$openConnectionItem = $_
 			$removePath = $false
-			$pidpath ="$openConnectionItem/pid.txt"
-			Write-Debug "Checking $openConnectionItem"
+			$pidpath ="$($openConnectionItem.FullName)/pid.txt"
+			Write-Debug "Checking $($openConnectionItem.FullName)"
 			if(Test-Path $pidpath)
 			{
 				$processid = [int]::Parse((Get-Content $pidpath -Raw))
 				Write-Debug "PID $processid detected at $pidpath"
-				$proc = Get-Process -Id $processid
-				if($proc.HasExited -or $proc.ProcessName -ne 'openvpn'){
+				$proc = Get-Process -Id $processid -ErrorAction Ignore
+				if(!$proc -or $proc.HasExited -or $proc.ProcessName -ne 'openvpn'){
 					Write-Debug "PID $processid is dead and should be removed"
 					$removePath = $true
 				}else{
 					Write-Debug "PID $processid is alive"
-					Get-ChildItem $openConnectionItem -File -Filter '*.ovpn'|ForEach-Object {
+					$openConnectionItem | Get-ChildItem -File -Filter '*.ovpn'|ForEach-Object {
 						Write-Debug "Checking OVPN $_"
 						if($Config.Name -eq $_.Name){
 							Wait-OpenConnectionReady -OpenConnectionDirectory $openConnectionItem
@@ -97,25 +97,25 @@ function Connect-OpenVPN{
 			else{
 				$removePath = $true
 			}
-			if($removePath){Remove-Item $openConnectionItem -Recurse -Force}
+			if($removePath){$openConnectionItem|Remove-Item -Recurse -Force}
 		}
 		if($results){
 			Write-Debug "In-progress connection detected $results"
 			return $results
 		}else{
 			$guid = New-Guid
-			$newconfigpath = New-Item -Path "$openConnectionsLocation/$guid" -ItemType Directory -Force
-			$newconfigfile = New-Item -Path "$newconfigpath/$($Config.Name)" -ItemType File -Force
-			Write-Debug "Initializing connection $newconfigpath"
+			$newconfigpath = New-Item -Path "$($openConnectionsLocation.FullName)/$guid" -ItemType Directory -Force
+			$newconfigfile = New-Item -Path "$($newconfigpath.FullName)/$($Config.Name)" -ItemType File -Force
+			Write-Debug "Initializing connection $($newconfigpath.FullName)"
 			$configcontent = Get-Content $Config -Raw
 			if($Credential){
 				$configcontent = $configcontent.Replace("auth-user-pass", "auth-user-pass auth.$guid.txt")
 			}
 			Set-Content -Value $configcontent -Path $newconfigfile -NoNewline
-			$options = "--config `"$newconfigfile`" --log `"$newconfigpath/out.log`" --writepid `"$newconfigpath/pid.txt`""
+			$options = "--config `"$newconfigfile`" --log `"$($newconfigpath.FullName)/out.log`" --writepid `"$($newconfigpath.FullName)/pid.txt`""
 			if($Credential){
-				Write-Debug "Attaching $($Credential.UserName) credential to $newconfigpath"
-				$secretfile = New-Item -Path "$newconfigpath/auth.$guid.txt" -ItemType File -Force
+				Write-Debug "Attaching $($Credential.UserName) credential to $($newconfigpath.FullName)"
+				$secretfile = New-Item -Path "$($newconfigpath.FullName)/auth.$guid.txt" -ItemType File -Force
 				$username = $Credential.UserName
 				$password = [System.Net.NetworkCredential]::new("", $Credential.Password).Password
 				@($username,$password)|Set-Content $secretfile
@@ -126,7 +126,7 @@ function Connect-OpenVPN{
 			}
 			Wait-OpenConnectionReady -OpenConnectionDirectory $newconfigpath
 			if(!$Credential){
-				Remove-Item $secretfile -Force
+				$secretfile | Remove-Item -Force
 			}
 			Write-Debug "Started process $result"
 			return $result
@@ -208,10 +208,10 @@ function Wait-OpenConnectionReady{
 	do{
 		Write-Debug "Waiting for Connection $OpenConnectionDirectory"
 		Start-Sleep -Milliseconds 2000
-		$file = Get-ChildItem $OpenConnectionDirectory -File -Filter 'out.log' -ErrorAction Continue
+		$file = $OpenConnectionDirectory|Get-ChildItem -File -Filter 'out.log' -ErrorAction Continue
 		if($file){
 			Write-Debug "Copying $file for check"
-			$file2 = Copy-Item $file -Destination "$OpenConnectionDirectory/out.$(New-Guid).log" -Force -PassThru
+			$file2 = $file|Copy-Item -Destination "$($OpenConnectionDirectory.FullName)/out.$(New-Guid).log" -Force -PassThru
 			$content = Get-Content $file2 -Raw
 			if($content.Contains("AUTH: Received control message: AUTH_FAILED")){
 				$result = "Invalid Username or Password (AUTH: Received control message: AUTH_FAILED)"
@@ -225,7 +225,7 @@ function Wait-OpenConnectionReady{
 			elseif($content.Contains("Exiting due to fatal error")){
 				$result = "Exiting due to fatal error : check $file for details"
 			}
-			Remove-Item $file2
+			$file2|Remove-Item
 		}
 		else{
 			Write-Debug "$file not found"
@@ -268,7 +268,7 @@ function Remove-DomainFromCredential{
 		for($i = 1;$i -lt $res.Count;$i++){
 			$res2[$i-1] = $res[$i]
 		}
-		$resname = $res2|Join-String -Separator '\'
+		$resname = [string]::Join('\',$res2)
 	}
 	else{
 		Write-Debug "No Domain found in credential username $($Credential.UserName)"
