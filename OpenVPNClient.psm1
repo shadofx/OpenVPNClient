@@ -31,6 +31,20 @@ function Start-OpenVPN{
 	}
 	return [OpenVpnClient.Process]::Start($WorkingDirectory, $OpenVPNOptions, $StdIn).GetAwaiter().GetResult()
 }
+function SecureFile{
+	[CmdletBinding()]
+	param (
+		[Parameter()]
+		[string]
+		$SecretFile
+	)
+	$sec = Get-Acl $SecretFile
+	$sec.SetAccessRuleProtection($true, $false)
+	$sec.RemoveAccessRuleAll((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM","FullControl","Allow")))
+	$sec.RemoveAccessRuleAll((New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators","FullControl","Allow")))
+	$sec.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.WindowsIdentity]::GetCurrent().User,"FullControl","Allow")))
+	$sec | Set-Acl
+}
 function Connect-OpenVPN{
 	[CmdletBinding(DefaultParameterSetName="Direct")]
 	[OutputType([int])]
@@ -149,6 +163,7 @@ function Connect-OpenVPN{
 				}else{
 					$secret = Read-Host -AsSecureString -Prompt "Enter secret for $SecretFile"
 					Export-Clixml -Path $SecretFile -OutVariable $secret
+					SecureFile -SecretFile $SecretFile
 					Write-Verbose "Exported secret to $SecretFile"
 					$SecretFile.Refresh()
 				}
@@ -165,6 +180,7 @@ function Connect-OpenVPN{
 				Write-Debug "Successfully connected OpenVPN with $Config for user $($credential.UserName)"
 				if($credentialInputted){
 					Export-Clixml -Path $CredentialFile -InputObject $rawcredential
+					SecureFile -SecretFile $CredentialFile
 					Write-Verbose "Exported $($rawcredential.UserName) credential to $CredentialFile"
 					$CredentialFile.Refresh()
 				}
