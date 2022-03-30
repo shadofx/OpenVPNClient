@@ -1,3 +1,19 @@
+<#
+.SYNOPSIS
+Generates a Google Authenticator Token
+
+.DESCRIPTION
+Takes in a BASE32 encoded $Secret and generates an object with string Pin and int SecondsRemaining parameters
+
+.PARAMETER Secret
+BASE32 encoded Secret e.g. 5WYYADYB5DK2BIOV
+
+.EXAMPLE
+$token = Get-GoogleAuthenticatorPin -Secret 5WYYADYB5DK2BIOV
+Write-Host "Token's PIN is" $token.Pin "with" $token.SecondsRemaining "seconds remaining"
+.NOTES
+Uses Otp.NET https://github.com/kspearrin/Otp.NET
+#>
 function Get-GoogleAuthenticatorPin{
 	[CmdletBinding()]
 	[OutputType([OpenVPNClient.GoogleAuthenticatorPin])]
@@ -9,6 +25,29 @@ function Get-GoogleAuthenticatorPin{
 	)
 	return [OpenVPNClient.GoogleAuthenticatorPin]::Get($Secret)
 }
+<#
+.SYNOPSIS
+Initates an instance of the openvpn process
+
+.DESCRIPTION
+Uses OpenVPNInteractiveService or admin permission to invoke a new openvpn process
+
+.PARAMETER WorkingDirectory
+Working directory for OpenVPN process, defaults to current directory
+
+.PARAMETER OpenVPNOptions
+Command line arguments to pass to OpenVPN
+
+.PARAMETER StdIn
+Input to send into started OpenVPN process. The LF (U000A) character can be used to simulate an enter key.
+
+.EXAMPLE
+An example
+
+.NOTES
+See https://community.openvpn.net/openvpn/wiki/OpenVPNInteractiveService
+Also the OpenVPNClient.*.dll may be used .NET
+#>
 function Start-OpenVPN{
 	[CmdletBinding()]
 	[OutputType([int])]
@@ -31,6 +70,22 @@ function Start-OpenVPN{
 	}
 	return [OpenVpnClient.Process]::Start($WorkingDirectory, $OpenVPNOptions, $StdIn).GetAwaiter().GetResult()
 }
+<#
+.SYNOPSIS
+Adds Windows permissions to file
+
+.DESCRIPTION
+Long description
+
+.PARAMETER SecretFile
+File path to secure
+
+.EXAMPLE
+An example
+
+.NOTES
+General notes
+#>
 function SecureFile{
 	[CmdletBinding()]
 	param (
@@ -197,6 +252,22 @@ function Connect-OpenVPN{
 		return $result
 	}
 }
+<#
+.SYNOPSIS
+Pauses until a directory being used by openvpn indicates connectivity
+
+.DESCRIPTION
+Pauses until certain key phrases inside the log file for a directory being used by openvpn indicates successful connection, or fatal error
+
+.PARAMETER OpenConnectionDirectory
+Directory containing out.log file associated with active openvpn connection
+
+.EXAMPLE
+An example
+
+.NOTES
+Not to be used without Connect-OpenVpn
+#>
 function Wait-OpenConnectionReady{
 	[CmdletBinding()]
 	[OutputType([void])]
