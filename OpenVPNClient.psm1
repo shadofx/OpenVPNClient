@@ -162,7 +162,7 @@ function Connect-OpenVPN{
 					$secret = Import-Clixml -Path $SecretFile
 				}else{
 					$secret = Read-Host -AsSecureString -Prompt "Enter secret for $SecretFile"
-					Export-Clixml -Path $SecretFile -OutVariable $secret
+					Export-Clixml -Path $SecretFile -InputObject $secret
 					SecureFile -SecretFile $SecretFile
 					Write-Verbose "Exported secret to $SecretFile"
 					$SecretFile.Refresh()
