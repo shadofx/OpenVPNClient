@@ -78,7 +78,7 @@ else # Desktop
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @('Get-GoogleAuthenticatorPin','Start-OpenVPN','Connect-OpenVPN','Add-GoogleTokenToCredential','Remove-DomainFromCredential')
+FunctionsToExport = @('Get-GoogleAuthenticatorPin','Start-OpenVPN','Connect-OpenVPN','Add-GoogleTokenToCredential','Remove-DomainFromCredential','Connect-OpenVpnGUI')
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 # CmdletsToExport = @()
@@ -87,7 +87,7 @@ FunctionsToExport = @('Get-GoogleAuthenticatorPin','Start-OpenVPN','Connect-Open
 #VariablesToExport = '*'
 
 # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-AliasesToExport = @('ggap','sovpn','covpn','agttc','rdfc')
+AliasesToExport = @('ggap','sovpn','covpn','agttc','rdfc','covg')
 
 # DSC resources to export from this module
 # DscResourcesToExport = @()

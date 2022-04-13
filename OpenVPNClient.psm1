@@ -347,9 +347,144 @@ function Remove-DomainFromCredential{
 	}
 	return [pscredential]::new($resname,$Credential.Password)
 }
-
+function Connect-OpenVpnGUI{
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Connect,
+        [string]$AuthPath,
+        [string]$SecretPath,
+        [string]$OpenVpnGuiPath = 'C:\Program Files\OpenVPN\bin\openvpn-gui.exe',
+        [switch]$RequeryAuth,
+        [switch]$RequerySecret,
+        [switch]$IgnoreUserDomain
+    )
+    if($currentstatus = Get-Content -Path "$env:USERPROFILE\OpenVPN\log\$Connect.log"|Select-String "MANAGEMENT: >STATE:"|Select-Object -Last 1|Select-String "CONNECTED,SUCCESS"){
+        Write-Warning "$Connect is already connected"
+        return $true
+    }else{
+        $file = Get-Item -Path "$env:USERPROFILE\openvpn\config\$Connect\$Connect.ovpn"
+        if($AuthPath){
+            if(!(Test-Path $AuthPath) -or $RequeryAuth){
+                $cred = Get-Credential -Message "Input credentials for $AuthPath"
+                if(!$RequeryAuth){
+                    $cred | Export-Clixml -Path $AuthPath
+                }
+            }else{
+                $cred = [pscredential](Import-Clixml $AuthPath)
+            }
+            $backup = $file.FullName+'.bak'
+            $authfile = Join-Path $file.Directory 'auth.txt'
+            if(Test-Path $backup){
+                $file | Remove-Item
+                Copy-Item -Path $backup -Destination $file.FullName
+            }else{
+                Copy-Item -Path $file.FullName -Destination $backup
+            }
+            $content = Get-Content -Path $backup -Raw
+            $content = [regex]::Replace($content,"auth-user-pass([ \t]+[^\r\n]+)?([\r\n]+)","auth-user-pass auth.txt`$2")
+            $content = [regex]::Replace($content,"resolv-retry infinite","resolv-retry infinite`nremap-usr1 SIGTERM")
+            Set-Content -Path $file.FullName -Value $content -NoNewline
+            $username = $cred.UserName
+            if($IgnoreUserDomain){
+                $username = Split-Path -Leaf $username
+            }
+            $password = $cred.GetNetworkCredential().Password
+            if($SecretPath){
+                if(!(Test-Path $SecretPath) -or $RequerySecret){
+                    $secret = Read-Host -Prompt "Enter secret for $SecretPath" -AsSecureString
+                    if(!$RequerySecret){
+                        $secret | Export-Clixml -Path $SecretPath
+                    }
+                }else{
+                    $secret = Import-Clixml -Path $SecretPath
+                }
+                $pin = Get-GoogleAuthenticatorPin -Secret $secret
+                $password = $password + $pin.Pin
+            }
+            Set-Content -Path $authfile -Value "$username`n$password"
+        }
+        &$OpenVpnGuiPath --connect "$Connect"
+        $done = $false
+        while(!$done){
+            Start-Sleep 1
+            $currentstatus = Get-Content -Path "$env:USERPROFILE\OpenVPN\log\$Connect.log"|Select-String "MANAGEMENT: >STATE:"|Select-Object -Last 1
+            if($currentstatus|Select-String ",CONNECTED,SUCCESS,"){
+                $done = $true
+                if($AuthPath){
+                    $cred | Export-Clixml -Path $AuthPath
+                    if($SecretPath){
+                        $secret | Export-Clixml -Path $SecretPath
+                    }
+                }
+                return $true
+            }elseif($currentstatus|Select-String ",EXITING,auth-failure,"){
+                $done = $true
+                Write-Warning $currentstatus
+                if($AuthPath){
+                    Copy-Item -Path $backup -Destination $file.FullName -Force
+                    Remove-Item -Path $authfile
+                    Remove-Item -Path $backup
+                    $options = [System.Management.Automation.Host.ChoiceDescription[]](
+                        (New-Object System.Management.Automation.Host.ChoiceDescription "&Yes","Description."),
+                        (New-Object System.Management.Automation.Host.ChoiceDescription "&No","Description."), 
+                        (New-Object System.Management.Automation.Host.ChoiceDescription "&Cancel","Description."))
+                    $cancel = $false
+                    switch ($host.ui.PromptForChoice("", "Requery Credentials?", $options, 1)) {
+                        0{$requeryAuth = $true}
+                        1{$requeryAuth = $false}
+                        2{$cancel = $true}
+                    }
+                    if(!$cancel){
+                        if($SecretPath)
+                        {
+                            switch ($host.ui.PromptForChoice("", "Requery Secret?", $options, 1)) {
+                                0{$requerySecret = $true}
+                                1{$requerySecret = $false}
+                                2{$cancel = $true}
+                            }
+                            if(!$cancel){
+                                if($requeryAuth){
+                                    if($requerySecret){
+                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath -RequeryAuth -RequerySecret
+                                    }else{
+                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath -RequeryAuth
+                                    }
+                                }else{
+                                    if($requerySecret){
+                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath -RequerySecret
+                                    }else{
+                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath
+                                    }
+                                }
+                                $AuthPath = 0
+                            }
+                        }else{
+                            if($requeryAuth){
+                                Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -RequeryAuth
+                            }else{
+                                Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath
+                            }
+                            $AuthPath = 0
+                        }
+                    }
+                }
+            }elseif($currentstatus|Select-String ",EXITING,"){
+                $done = $true
+                Write-Warning $currentstatus
+            }else{
+                Write-Progress -Activity "Connecting to $Connect" -Status $currentstatus
+            }
+        }
+        if($AuthPath -and (Test-Path $backup)){
+            Copy-Item -Path $backup -Destination $file.FullName -Force
+            Remove-Item -Path $authfile
+            Remove-Item -Path $backup
+        }
+    }
+}
 Export-ModuleMember -Function Get-GoogleAuthenticatorPin -Alias ggap
 Export-ModuleMember -Function Start-OpenVPN -Alias sovpn
 Export-ModuleMember -Function Connect-OpenVPN -Alias covpn
 Export-ModuleMember -Function Add-GoogleTokenToCredential -Alias agttc
 Export-ModuleMember -Function Remove-DomainFromCredential -Alias rdfc
+Export-ModuleMember -Function Connect-OpenVpnGUI -Alias covg
