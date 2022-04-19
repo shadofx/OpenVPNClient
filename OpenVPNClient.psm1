@@ -351,136 +351,244 @@ function Connect-OpenVpnGUI{
     param(
         [Parameter(Mandatory=$true)]
         [string]$Connect,
-        [string]$AuthPath,
+        [string]$LoginInfoPath,
         [string]$SecretPath,
         [string]$OpenVpnGuiPath = 'C:\Program Files\OpenVPN\bin\openvpn-gui.exe',
-        [switch]$RequeryAuth,
+        [switch]$RequeryLoginInfo,
         [switch]$RequerySecret,
         [switch]$IgnoreUserDomain
     )
-    if($currentstatus = Get-Content -Path "$env:USERPROFILE\OpenVPN\log\$Connect.log"|Select-String "MANAGEMENT: >STATE:"|Select-Object -Last 1|Select-String "CONNECTED,SUCCESS"){
-        Write-Warning "$Connect is already connected"
-        return $true
-    }else{
-        $file = Get-Item -Path "$env:USERPROFILE\openvpn\config\$Connect\$Connect.ovpn"
-        if($AuthPath){
-            if(!(Test-Path $AuthPath) -or $RequeryAuth){
-                $cred = Get-Credential -Message "Input credentials for $AuthPath"
-                if(!$RequeryAuth){
-                    $cred | Export-Clixml -Path $AuthPath
-                }
-            }else{
-                $cred = [pscredential](Import-Clixml $AuthPath)
-            }
-            $backup = $file.FullName+'.bak'
-            $authfile = Join-Path $file.Directory 'auth.txt'
-            if(Test-Path $backup){
-                $file | Remove-Item
-                Copy-Item -Path $backup -Destination $file.FullName
-            }else{
-                Copy-Item -Path $file.FullName -Destination $backup
-            }
-            $content = Get-Content -Path $backup -Raw
-            $content = [regex]::Replace($content,"auth-user-pass([ \t]+[^\r\n]+)?([\r\n]+)","auth-user-pass auth.txt`$2")
-            $content = [regex]::Replace($content,"resolv-retry infinite","resolv-retry infinite`nremap-usr1 SIGTERM")
-            Set-Content -Path $file.FullName -Value $content -NoNewline
-            $username = $cred.UserName
-            if($IgnoreUserDomain){
-                $username = Split-Path -Leaf $username
-            }
-            $password = $cred.GetNetworkCredential().Password
-            if($SecretPath){
-                if(!(Test-Path $SecretPath) -or $RequerySecret){
-                    $secret = Read-Host -Prompt "Enter secret for $SecretPath" -AsSecureString
-                    if(!$RequerySecret){
-                        $secret | Export-Clixml -Path $SecretPath
-                    }
-                }else{
-                    $secret = Import-Clixml -Path $SecretPath
-                }
-                $pin = Get-GoogleAuthenticatorPin -Secret $secret
-                $password = $password + $pin.Pin
-            }
-            Set-Content -Path $authfile -Value "$username`n$password"
+    $manager = [pscustomobject]@{
+        Connect = $Connect
+        LogPath = "$env:USERPROFILE\OpenVPN\log\$Connect.log"
+        OVPNPath = "$env:USERPROFILE\openvpn\config\$Connect\$Connect.ovpn"
+        BackupPath = "$env:USERPROFILE\openvpn\config\$Connect\$Connect.ovpn.bak"
+        OVPNAuthPath = "$env:USERPROFILE\openvpn\config\$Connect\auth.txt"
+        OpenVpnGuiPath = $OpenVpnGuiPath
+        IgnoreUserDomain = $IgnoreUserDomain.IsPresent
+    }
+    $manager | Add-Member -MemberType ScriptMethod -Name PromptChoice -Value {
+        param([string]$message)
+        $options = [System.Management.Automation.Host.ChoiceDescription[]](
+            (New-Object System.Management.Automation.Host.ChoiceDescription "&Yes","Yes."),
+            (New-Object System.Management.Automation.Host.ChoiceDescription "&No","No."), 
+            (New-Object System.Management.Automation.Host.ChoiceDescription "&Cancel","Cancel."))
+        switch ($host.UI.PromptForChoice("", $message, $options, 1)) {
+            0{"Yes"}
+            1{"No"}
+            2{"Cancel"}
         }
-        &$OpenVpnGuiPath --connect "$Connect"
-        $done = $false
-        while(!$done){
-            Start-Sleep 1
-            $currentstatus = Get-Content -Path "$env:USERPROFILE\OpenVPN\log\$Connect.log"|Select-String "MANAGEMENT: >STATE:"|Select-Object -Last 1
-            if($currentstatus|Select-String ",CONNECTED,SUCCESS,"){
-                $done = $true
-                if($AuthPath){
-                    $cred | Export-Clixml -Path $AuthPath
-                    if($SecretPath){
-                        $secret | Export-Clixml -Path $SecretPath
+    }
+    $manager | Add-Member -MemberType ScriptProperty -Name LogState -Value {
+        $log = Get-Content -Path $this.LogPath -ErrorAction Ignore|Select-String "MANAGEMENT: >STATE:"|Select-Object -Last 1
+        if($log){$log}
+        else{""}
+    }
+    $manager | Add-Member -MemberType ScriptProperty -Name IsConnected -Value {
+        return (Get-Process openvpn -ErrorAction Ignore) -and ($this.LogState|Select-String "CONNECTED,SUCCESS")
+    }
+    if($manager.IsConnected){
+        Write-Verbose "$Connect is already connected"
+        return $true
+    }elseif(!(Test-Path $manager.OVPNPath)){
+        Write-Warning "$($manager.OVPNPath) does not exist"
+        return $false
+    }else{
+        if($LoginInfoPath){
+            $manager|Add-Member -MemberType NoteProperty -Name LoginInfo -Value $null
+            $manager|Add-Member -MemberType NoteProperty -Name LoginInfoPath -Value $LoginInfoPath
+            $manager|Add-Member -MemberType ScriptMethod -Name QueryLoginInfo -Value{
+                if($this.LoginInfo){
+                    $this.LoginInfo = Get-Credential -Message "Input credentials for $($this.LoginInfoPath)" -UserName $this.LoginInfo.UserName
+                }else{
+                    $this.LoginInfo = Get-Credential -Message "Input credentials for $($this.LoginInfoPath)"
+                }
+            }
+            $manager|Add-Member -MemberType ScriptMethod -Name SaveLoginInfo -Value{
+                $dosave = $true
+                if(Test-Path $this.LoginInfoPath){
+                    $temp = Import-Clixml -Path $this.LoginInfoPath
+                    if(($temp.UserName -eq $this.LoginInfo.UserName) -and ($temp.GetNetworkCredential().Password -eq $this.LoginInfo.GetNetworkCredential().Password)){
+                        $dosave = $false
                     }
                 }
-                return $true
-            }elseif($currentstatus|Select-String ",EXITING,auth-failure,"){
-                $done = $true
-                Write-Warning $currentstatus
-                if($AuthPath){
-                    Copy-Item -Path $backup -Destination $file.FullName -Force
-                    Remove-Item -Path $authfile
-                    Remove-Item -Path $backup
-                    $options = [System.Management.Automation.Host.ChoiceDescription[]](
-                        (New-Object System.Management.Automation.Host.ChoiceDescription "&Yes","Description."),
-                        (New-Object System.Management.Automation.Host.ChoiceDescription "&No","Description."), 
-                        (New-Object System.Management.Automation.Host.ChoiceDescription "&Cancel","Description."))
-                    $cancel = $false
-                    switch ($host.ui.PromptForChoice("", "Requery Credentials?", $options, 1)) {
-                        0{$requeryAuth = $true}
-                        1{$requeryAuth = $false}
-                        2{$cancel = $true}
-                    }
-                    if(!$cancel){
-                        if($SecretPath)
-                        {
-                            switch ($host.ui.PromptForChoice("", "Requery Secret?", $options, 1)) {
-                                0{$requerySecret = $true}
-                                1{$requerySecret = $false}
-                                2{$cancel = $true}
-                            }
-                            if(!$cancel){
-                                if($requeryAuth){
-                                    if($requerySecret){
-                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath -RequeryAuth -RequerySecret
-                                    }else{
-                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath -RequeryAuth
-                                    }
+                if($dosave){
+                    $this.LoginInfo | Export-Clixml -Path $this.LoginInfoPath
+                }
+            }
+            $manager|Add-Member -MemberType ScriptMethod -Name LoadLoginInfo -Value{
+                $this.LoginInfo = Import-Clixml -Path $this.LoginInfoPath
+            }
+            if(!(Test-Path $manager.LoginInfoPath)){
+                $manager.QueryLoginInfo()
+                $manager.SaveLoginInfo()
+            }elseif($RequeryLoginInfo.IsPresent){
+                $manager.QueryLoginInfo()
+            }else{
+                $manager.LoadLoginInfo()
+            }
+            if($SecretPath){
+                $manager|Add-Member -MemberType NoteProperty -Name Secret -Value $null
+                $manager|Add-Member -MemberType NoteProperty -Name SecretPath -Value $SecretPath
+                $manager|Add-Member -MemberType ScriptMethod -Name QuerySecret -Value{
+                    $this.Secret = Read-Host -Prompt "Enter secret for $($this.SecretPath)" -AsSecureString
+                }
+                $manager|Add-Member -MemberType ScriptMethod -Name SaveSecret -Value{
+                    $this.Secret | Export-Clixml -Path $this.SecretPath
+                }
+                $manager|Add-Member -MemberType ScriptMethod -Name LoadSecret -Value{
+                    $this.Secret = Import-Clixml -Path $this.SecretPath
+                }
+                if(!(Test-Path $manager.SecretPath)){
+                    $manager.QuerySecret()
+                    $manager.SaveSecret()
+                }elseif($RequerySecret.IsPresent){
+                    $manager.QuerySecret()
+                }else{
+                    $manager.LoadSecret()
+                }
+                $manager|Add-Member -MemberType ScriptProperty -Name Password -Value{
+                    $pass = $this.LoginInfo.GetNetworkCredential().Password
+                    $pin = Get-GoogleAuthenticatorPin -Secret $this.Secret
+                    return $pass + $pin.Pin
+                }
+                $manager|Add-Member -MemberType ScriptMethod -Name OnSuccess -Value{
+                    $this.SaveLoginInfo()
+                    $this.SaveSecret()
+                }
+                $manager|Add-Member -MemberType ScriptMethod -Name GetRetryOnAuthFailure -Value{
+                    $requeryLoginInfos = $this.PromptChoice("Requery Credentials?")
+                    if($requeryLoginInfos -eq "Cancel"){
+                        return $false
+                    }else{
+                        switch($this.PromptChoice("Requery Secret?")){
+                            "Yes"{
+                                if($requeryLoginInfos -eq "Yes"){
+                                    $this.QueryLoginInfo()
+                                    $this.QuerySecret()
+                                    return $true
                                 }else{
-                                    if($requerySecret){
-                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath -RequerySecret
-                                    }else{
-                                        Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -SecretPath $SecretPath
-                                    }
+                                    $this.QuerySecret()
+                                    return $true
                                 }
-                                $AuthPath = 0
                             }
-                        }else{
-                            if($requeryAuth){
-                                Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath -RequeryAuth
-                            }else{
-                                Connect-OpenVpnGUI -Connect $Connect -AuthPath $AuthPath
+                            "No"{
+                                if($requeryLoginInfos -eq "Yes"){
+                                    $this.QueryLoginInfo()
+                                    return $true
+                                }else{
+                                    return $false
+                                }
                             }
-                            $AuthPath = 0
+                            "Cancel"{
+                                return $false
+                            }
                         }
                     }
                 }
-            }elseif($currentstatus|Select-String ",EXITING,"){
-                $done = $true
-                Write-Warning $currentstatus
             }else{
-                Write-Progress -Activity "Connecting to $Connect" -Status $currentstatus
+                $manager|Add-Member -MemberType ScriptProperty -Name Password -Value{
+                    return $this.LoginInfo.GetNetworkCredential().Password
+                }
+                $manager|Add-Member -MemberType ScriptMethod -Name OnSuccess -Value{
+                    $this.SaveLoginInfo()
+                }
+                $manager|Add-Member -MemberType ScriptMethod -Name GetRetryOnAuthFailure -Value{
+                    switch($this.PromptChoice("Requery Credentials?")){
+                        "Yes"{
+                            $this.QueryLoginInfo()
+                            return $true
+                        }
+                        "No"{
+                            return $false
+                        }
+                        "Cancel"{
+                            return $false
+                        }
+                    }
+                }
+            }
+            $manager|Add-Member -MemberType ScriptProperty -Name UserName -Value{
+                $username = $this.LoginInfo.UserName
+                if($this.IgnoreUserDomain){
+                    $username = Split-Path -Leaf $username
+                }
+                return $username
+            }
+            $manager|Add-Member -MemberType ScriptMethod -Name GetConnection -Value{
+                if(Test-Path $this.BackupPath){
+                    Remove-Item -Path $this.OVPNPath
+                    Copy-Item -Path $this.BackupPath -Destination $this.OVPNPath
+                }else{
+                    Copy-Item -Path $this.OVPNPath -Destination $this.BackupPath
+                }
+                $content = Get-Content -Path $this.BackupPath -Raw
+                $content = [regex]::Replace($content,"auth-user-pass([ \t]+[^\r\n]+)?([\r\n]+)","remap-usr1 SIGTERM`nkeepalive 10 120`ninactive 0`nauth-user-pass auth.txt`$2")
+                Set-Content -Path $this.OVPNPath -Value $content -NoNewline
+                $result = ''
+                while(!$result){
+                    Set-Content -Path $this.OVPNAuthPath -Value "$($this.UserName)`n$($this.Password)"
+                    Set-Content -Path $this.LogPath -Value ""
+                    &($this.OpenVpnGuiPath) --connect "$($this.Connect)"
+                    while(!$result){
+                        Start-Sleep 1
+                        $state = $this.LogState
+                        if($state|Select-String ",CONNECTED,SUCCESS,"){
+                            $result = "Connected"
+                        }elseif($currentstatus|Select-String ",EXITING,auth-failure,"){
+                            $result = "AuthFailure"
+                        }elseif($state|Select-String ",EXITING,"){
+                            $result = $state
+                        }else{
+                            Write-Progress -Activity "Connecting to $Connect" -Status "$state"
+                        }
+                    }
+                    Write-Progress -Activity "Connecting to $Connect" -Completed
+                    if($result -eq "AuthFailure" -and $this.GetRetryOnAuthFailure()){
+                        $result = ""
+                    }
+                }
+                Remove-Item -Path $this.OVPNAuthPath
+                if(Test-Path $this.BackupPath){
+                    Remove-Item -Path $this.OVPNPath
+                    Copy-Item -Path $this.BackupPath -Destination $this.OVPNPath
+                    Remove-Item -Path $this.BackupPath
+                }
+                if($result -eq "Connected"){
+                    $this.OnSuccess()
+                    return $true
+                }elseif($result -eq "AuthFailure"){
+                    Write-Warning "Authentication Failure for $($this.Connect)"
+                    return $false
+                }else{
+                    Write-Warning $result
+                    return $false
+                }
+            }
+        }else{
+            $manager|Add-Member -MemberType ScriptMethod -Name GetConnection -Value{
+                Set-Content -Path $this.LogPath -Value ""
+                &($this.OpenVpnGuiPath) --connect "$($this.Connect)"
+                $done = $false
+                while(!$done){
+                    Start-Sleep 1
+                    $state = $this.LogState
+                    if($state|Select-String ",CONNECTED,SUCCESS,"){
+                        $done = $true
+                        return $true
+                    }elseif($state|Select-String ",EXITING,"){
+                        $done = $true
+                        Write-Warning $state
+                    }else{
+                        Write-Progress -Activity "Connecting to $Connect" -Status "$state"
+                    }
+                }
+                Write-Progress -Activity "Connecting to $Connect" -Completed
             }
         }
-        if($AuthPath -and (Test-Path $backup)){
-            Copy-Item -Path $backup -Destination $file.FullName -Force
-            Remove-Item -Path $authfile
-            Remove-Item -Path $backup
-        }
+
     }
+    return $manager.GetConnection()
 }
 Export-ModuleMember -Function Get-GoogleAuthenticatorPin -Alias ggap
 Export-ModuleMember -Function Start-OpenVPN -Alias sovpn
